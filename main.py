@@ -9,15 +9,15 @@ from flask import Flask
 import threading
 
 # Yahan apna bot token dalein
-TOKEN = '8609194789:AAEgZtEWUyaCrKgykxJ1_V5KvzhemQ-EMdk'
+TOKEN = '8609194789:AAFVX59ciRYVAsOKSegU9BNa5NuHSqJD3mw'
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 
 ADMIN_ID = 1484173564
 APPROVAL_CHANNEL = "@ValiModes_key"
 
 # ================= DATABASE SETUP (MONGODB - NO RESET) =================
-# ⚠️ YAHAN APNA MONGODB URL AUR PASSWORD DALEIN 
-MONGO_URL = "mongodb+srv://rihanshaikh9007_db_user:<db_password>@cluster0.zinixku.mongodb.net/?appName=Cluster0"
+# ✅ Password update kar diya gaya hai!
+MONGO_URL = "mongodb+srv://rihanshaikh9007_db_user:Rihanshaikh123@cluster0.zinixku.mongodb.net/?appName=Cluster0"
 client = MongoClient(MONGO_URL)
 db = client['webseries_bot']
 
@@ -85,7 +85,7 @@ def admin_super_commands(message):
         try:
             args = message.text.split()
             code, reward, max_u = args[1], int(args[2]), int(args[3])
-            hours = int(args[4]) if len(args) > 4 else 87600 # default 10 years if not provided
+            hours = int(args[4]) if len(args) > 4 else 87600 
             expiry = time.time() + (hours * 3600)
             promo_col.insert_one({"code": code, "reward": reward, "max_uses": max_u, "used_count": 0, "expiry": expiry})
             bot.reply_to(message, f"✅ <b>Promo Created!</b>\nCode: <code>{code}</code>\nReward: {reward}\nLimit: {max_u}\nValid for: {hours} Hours")
@@ -93,7 +93,6 @@ def admin_super_commands(message):
 
     elif cmd == '/addtask':
         try:
-            # Format: /addtask Task1 5 SECRET123 https://modlink.com/xyz
             args = message.text.split()
             task_id, reward, secret, link = args[1], int(args[2]), args[3], args[4]
             tasks_col.update_one({"task_id": task_id}, {"$set": {"reward": reward, "secret": secret, "link": link}}, upsert=True)
@@ -260,10 +259,10 @@ def text_commands(message):
             left = int((86400 - (now - last_bonus)) / 3600)
             bot.send_message(uid, f"⏳ <b>Wait!</b>\nAapko agla bonus <b>{left} ghante</b> baad milega.")
         else:
-            if now - last_bonus > 172800: streak = 1 # Missed 48 hours, reset streak
-            else: streak = min(streak + 1, 7) # Max 7 days streak
+            if now - last_bonus > 172800: streak = 1 
+            else: streak = min(streak + 1, 7) 
             
-            reward = streak * 2 # Formula: 2, 4, 6, 8, 10, 12, 14
+            reward = streak * 2 
             users_col.update_one({"user_id": uid}, {"$inc": {"coins": reward}, "$set": {"last_bonus": now, "streak": streak}})
             bot.send_message(uid, f"🔥 <b>Day {streak} Streak Bonus!</b>\nAapko <b>{reward} Coins</b> mil gaye hain.\n\n<i>Kal aana mat bhoolna, streak tut jayegi!</i>")
 
@@ -342,11 +341,11 @@ def handle_game_play(call):
     user = users_col.find_one({"user_id": uid})
     if user.get('coins', 0) < amt: return bot.answer_callback_query(call.id, "❌ Not enough coins!", show_alert=True)
     
-    users_col.update_one({"user_id": uid}, {"$inc": {"coins": -amt}}) # Deduct bet
+    users_col.update_one({"user_id": uid}, {"$inc": {"coins": -amt}}) 
     result = random.choice(["Heads", "Tails"])
     
     if choice == result:
-        users_col.update_one({"user_id": uid}, {"$inc": {"coins": amt * 2}}) # Win double
+        users_col.update_one({"user_id": uid}, {"$inc": {"coins": amt * 2}}) 
         bot.edit_message_text(f"🎲 Coin Flipping...\n\nResult: <b>{result}</b>\n🎉 <b>YOU WIN!</b> You got {amt*2} Coins!", chat_id=call.message.chat.id, message_id=call.message.message_id)
     else:
         bot.edit_message_text(f"🎲 Coin Flipping...\n\nResult: <b>{result}</b>\n😢 <b>YOU LOSE!</b> Better luck next time.", chat_id=call.message.chat.id, message_id=call.message.message_id)
