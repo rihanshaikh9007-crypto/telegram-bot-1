@@ -5,22 +5,23 @@ import random
 import os
 import time
 from datetime import datetime
-from flask import Flask
-import threading
+from flask import Flask, request
 
-# Yahan apna bot token dalein
-TOKEN = '8609194789:AAFMKhn_mJUrb9206Ond_hjIFzKOILrlQ6U'
+# ================= ⚡ SETTINGS (WEBHOOK) =================
+TOKEN = '8677737410:AAG-Gitqe7MtZybzx5Z320fzDNr-3xMcuS8'
+WEBHOOK_URL = 'https://telegram-bot-1-1-n41y.onrender.com' # Render Link
+
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 
 ADMIN_ID = 1484173564
 APPROVAL_CHANNEL = "@ValiModes_key"
 
-# ================= DATABASE SETUP (MONGODB - NO RESET) =================
+# ================= 💾 DATABASE (MONGODB) =================
 MONGO_URL = "mongodb+srv://rihanshaikh9007_db_user:Rihanshaikh123@cluster0.zinixku.mongodb.net/?appName=Cluster0"
-client = MongoClient(MONGO_URL)
+client = MongoClient(MONGO_URL, maxPoolSize=100) 
 db = client['webseries_bot']
 
-# Collections (Tables)
+# Collections
 channels_col = db['channels']
 join_reqs_col = db['join_reqs']
 users_col = db['users']
@@ -37,26 +38,19 @@ if not settings_col.find_one({"name": "key_link"}):
 if not settings_col.find_one({"name": "base_price"}):
     settings_col.insert_one({"name": "base_price", "value": "15"})
 
-# ================= SECURITY / ANTI-SPAM =================
+# ================= 🛡️ SECURITY & ANTI-SPAM =================
 user_last_msg = {}
-verify_spam = {} 
 temp_channel_data = {}
 
 def flood_check(user_id):
     now = time.time()
-    if user_id in user_last_msg and now - user_last_msg[user_id] < 1.0: return True
+    if user_id in user_last_msg and now - user_last_msg[user_id] < 0.3: return True 
     user_last_msg[user_id] = now
     return False
 
 def is_user_banned(user_id):
     user = users_col.find_one({"user_id": user_id})
     return user and user.get("is_banned", 0) == 1
-
-# ================= FLASK WEB SERVER =================
-app = Flask(__name__)
-@app.route('/')
-def home(): return "V3.1 Ultimate Bot is Running with Bulk Add & New Captions!"
-def run_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 # ================= 👨‍💻 VIP ADMIN COMMANDS =================
 @bot.message_handler(commands=['addcoins', 'setprice', 'promo', 'check', 'change', 'admin', 'addtask'])
@@ -67,15 +61,14 @@ def admin_super_commands(message):
     if cmd == '/addcoins':
         try:
             _, uid, amt = message.text.split()
-            uid, amt = int(uid), int(amt)
-            users_col.update_one({"user_id": uid}, {"$inc": {"coins": amt}}, upsert=True)
+            users_col.update_one({"user_id": int(uid)}, {"$inc": {"coins": int(amt)}}, upsert=True)
             bot.reply_to(message, f"✅ {amt} Coins added to {uid}.")
-            bot.send_message(uid, f"🎁 Admin ne aapko <b>{amt} Coins</b> bheje hain!")
+            bot.send_message(int(uid), f"🎁 Admin ne aapko <b>{amt} Coins</b> bheje hain!")
         except: bot.reply_to(message, "❌ Format: `/addcoins USER_ID COINS`")
 
     elif cmd == '/setprice':
         try:
-            _, price = message.text.split()
+            price = message.text.split()[1]
             settings_col.update_one({"name": "base_price"}, {"$set": {"value": price}}, upsert=True)
             bot.reply_to(message, f"✅ Base Key Price set to {price} Coins.")
         except: bot.reply_to(message, "❌ Format: `/setprice 15`")
@@ -88,7 +81,7 @@ def admin_super_commands(message):
             expiry = time.time() + (hours * 3600)
             promo_col.insert_one({"code": code, "reward": reward, "max_uses": max_u, "used_count": 0, "expiry": expiry})
             bot.reply_to(message, f"✅ <b>Promo Created!</b>\nCode: <code>{code}</code>\nReward: {reward}\nLimit: {max_u}\nValid for: {hours} Hours")
-        except: bot.reply_to(message, "❌ Format: `/promo CODE REWARD LIMIT HOURS`\nExample: `/promo VIP 10 50 24`")
+        except: bot.reply_to(message, "❌ Format: `/promo CODE REWARD LIMIT HOURS`")
 
     elif cmd == '/addtask':
         try:
@@ -119,7 +112,7 @@ def admin_super_commands(message):
         markup.add(InlineKeyboardButton("➕ Add Channel", callback_data="add_channel"), InlineKeyboardButton("➖ Remove Channel", callback_data="remove_channel"))
         markup.add(InlineKeyboardButton("📋 View Added Channels", callback_data="view_channels"), InlineKeyboardButton("📊 Stats & Users", callback_data="adm_stats"))
         markup.add(InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"), InlineKeyboardButton("🚫 Ban User", callback_data="adm_ban"))
-        bot.send_message(message.chat.id, "👨‍💻 <b>Admin Panel (Bulk Upload Edition)</b>", reply_markup=markup)
+        bot.send_message(message.chat.id, "👨‍💻 <b>High Speed Admin Panel</b>", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data in ["add_channel", "remove_channel", "view_channels"] or call.data.startswith("adm_") or call.data.startswith("style_"))
 def admin_callbacks(call):
@@ -128,10 +121,10 @@ def admin_callbacks(call):
     if call.data.startswith("style_"):
         style = call.data.split("_")[1]
         data_list = temp_channel_data.get(call.message.chat.id)
-        
         if data_list:
             count = 0
             for data in data_list:
+                # Double check to prevent duplicates
                 if not channels_col.find_one({"channel_id": data['ch_id']}):
                     channels_col.insert_one({"channel_id": data['ch_id'], "link": data['link'], "style": style})
                     count += 1
@@ -140,7 +133,7 @@ def admin_callbacks(call):
         return
         
     if call.data == "add_channel":
-        msg = bot.send_message(call.message.chat.id, "🤖 <b>Bot ko sabhi channels me Admin banao!</b>\n\nPhir saare Channel IDs ek sath bhejo (Space dekar):\n\n<i>Example: -10012345 @MeraChannel -10098765</i>")
+        msg = bot.send_message(call.message.chat.id, "🤖 <b>Saare Channel IDs ek sath bhejo (Space dekar):</b>\n\n<i>Example: -100111 -100222 @MyChannel</i>")
         bot.register_next_step_handler(msg, process_add_channel)
         
     elif call.data == "view_channels":
@@ -165,35 +158,48 @@ def admin_callbacks(call):
         msg = bot.send_message(call.message.chat.id, "🚫 User ID to BAN:")
         bot.register_next_step_handler(msg, lambda m: toggle_ban(m, 1))
 
+# 🔥 SMART BULK ADD WITH DUPLICATE REMOVER
 def process_add_channel(message):
     ch_ids = message.text.replace(',', ' ').split() 
     success_data = []
     errors = []
+    duplicates = 0
     
     bot.send_message(message.chat.id, f"⏳ Processing {len(ch_ids)} channels...")
     
     for ch_id in ch_ids:
+        # Check if already exists in DB, ignore if duplicate
+        if channels_col.find_one({"channel_id": ch_id}):
+            duplicates += 1
+            continue
+            
         try:
             invite_link = bot.create_chat_invite_link(ch_id, creates_join_request=True).invite_link
             success_data.append({'ch_id': ch_id, 'link': invite_link})
-        except Exception as e:
+        except Exception:
             errors.append(f"{ch_id}: Bot admin nahi hai ya ID galat hai.")
 
-    if not success_data:
+    if not success_data and duplicates == 0:
         err_msg = "\n".join(errors)
-        return bot.send_message(message.chat.id, f"❌ Koi bhi channel fetch nahi ho paya.\n\nErrors:\n{err_msg}")
+        return bot.send_message(message.chat.id, f"❌ Koi naya channel fetch nahi hua.\n\nErrors:\n{err_msg}")
         
-    temp_channel_data[message.chat.id] = success_data
+    msg_text = ""
+    if success_data:
+        msg_text += f"✅ <b>{len(success_data)} Naye Channels ready hain!</b>\n"
+    if duplicates > 0:
+        msg_text += f"♻️ <b>{duplicates} Channels Duplicate the (Hata diye gaye).</b>\n"
+    if errors: 
+        msg_text += f"⚠️ {len(errors)} channels fail hue.\n"
     
-    msg_text = f"✅ <b>{len(success_data)} Channels ready hain!</b>\n"
-    if errors: msg_text += f"⚠️ {len(errors)} channels fail hue.\n"
-    msg_text += "\n🎨 <b>Ab in sabke liye Color choose karein:</b>"
-
-    markup = InlineKeyboardMarkup()
-    markup.add(InlineKeyboardButton("🔵 Blue", callback_data="style_primary"), InlineKeyboardButton("🟢 Green", callback_data="style_success"))
-    markup.add(InlineKeyboardButton("🔴 Red", callback_data="style_danger"), InlineKeyboardButton("⚪ Grey", callback_data="style_secondary"))
-    
-    bot.send_message(message.chat.id, msg_text, reply_markup=markup)
+    if success_data:
+        temp_channel_data[message.chat.id] = success_data
+        msg_text += "\n🎨 <b>Naye channels ke liye Color choose karein:</b>"
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔵 Blue", callback_data="style_primary"), InlineKeyboardButton("🟢 Green", callback_data="style_success"))
+        markup.add(InlineKeyboardButton("🔴 Red", callback_data="style_danger"), InlineKeyboardButton("⚪ Grey", callback_data="style_secondary"))
+        bot.send_message(message.chat.id, msg_text, reply_markup=markup)
+    else:
+        bot.send_message(message.chat.id, msg_text)
 
 def process_broadcast(message):
     bot.send_message(message.chat.id, "⏳ Broadcasting...")
@@ -206,29 +212,30 @@ def toggle_ban(message, status):
     users_col.update_one({"user_id": int(message.text.strip())}, {"$set": {"is_banned": status}})
     bot.reply_to(message, "✅ Done!")
 
-# ================= JOIN REQUEST & FORCE SUB =================
-def get_unjoined_channels(user_id):
+# ================= 💎 FORCE SUB & NEW AUTO-APPROVE LOGIC =================
+def get_unjoined(uid):
     unjoined = []
     for ch in list(channels_col.find()):
-        joined = False
         try:
-            if bot.get_chat_member(ch['channel_id'], user_id).status in ['member', 'administrator', 'creator']: joined = True
-        except: pass
-        if not joined and join_reqs_col.find_one({"user_id": user_id, "channel_id": ch['channel_id']}): joined = True
-        if not joined: unjoined.append(ch)
+            s = bot.get_chat_member(ch['channel_id'], uid).status
+            if s not in ['member', 'administrator', 'creator'] and not join_reqs_col.find_one({"user_id": uid, "channel_id": ch['channel_id']}):
+                unjoined.append(ch)
+        except: unjoined.append(ch) 
     return unjoined
 
 @bot.chat_join_request_handler()
 def handle_join_request(message: telebot.types.ChatJoinRequest):
     join_reqs_col.insert_one({"user_id": message.from_user.id, "channel_id": str(message.chat.id)})
+    try: bot.approve_chat_join_request(message.chat.id, message.from_user.id)
+    except: pass
 
 @bot.message_handler(commands=['start'])
-def start_cmd(message):
+def start(message):
     uid = message.from_user.id
     if flood_check(uid) or is_user_banned(uid): return
-
+    
     if not users_col.find_one({"user_id": uid}):
-        users_col.insert_one({"user_id": uid, "username": message.from_user.username or "Unknown", "join_date": datetime.now().strftime("%Y-%m-%d"), "coins": 0, "is_banned": 0, "last_bonus": 0, "streak": 0})
+        users_col.insert_one({"user_id": uid, "coins": 0, "streak": 0, "last_bonus": 0, "join_date": datetime.now().strftime("%Y-%m-%d")})
         args = message.text.split()
         if len(args) > 1 and args[1].isdigit():
             ref_id = int(args[1])
@@ -237,19 +244,15 @@ def start_cmd(message):
                 refs_col.insert_one({"user_id": uid, "referrer_id": ref_id})
                 try: bot.send_message(ref_id, "🎉 <b>Congrats!</b>\nKisi ne aapke link se bot start kiya hai. <b>+2 Coins</b> Added!")
                 except: pass
-    send_force_sub(message.chat.id, uid)
-
-# 🌟 NEW CAPTION UPDATED HERE
-def send_force_sub(chat_id, user_id):
-    unjoined = get_unjoined_channels(user_id)
-    if not unjoined: return send_main_menu(chat_id)
+                
+    unjoined = get_unjoined(uid)
+    if unjoined:
+        markup = InlineKeyboardMarkup()
+        for ch in unjoined: markup.add(InlineKeyboardButton("Join Channel", url=ch['link']))
+        markup.add(InlineKeyboardButton("✅ Done !!", callback_data="verify"))
         
-    markup = InlineKeyboardMarkup()
-    for ch in unjoined: markup.add(InlineKeyboardButton("Join Channel", url=ch['link'], style=ch.get('style', 'primary')))
-    markup.add(InlineKeyboardButton("✅ Done !!", callback_data="verify_channels", style="success"))
-    
-    video_url = "https://files.catbox.moe/4hbu2q.mp4" 
-    caption = """💎 𝗪𝗘𝗟𝗖𝗢𝗠𝗘 𝗧𝗢 𝗩𝗔𝗟𝗜 𝗠𝗢𝗗𝗦 𝗗𝗥𝗜𝗣 𝗞𝗘𝗬 
+        video_url = "https://files.catbox.moe/4hbu2q.mp4"
+        caption = """💎 𝗪𝗘𝗟𝗖𝗢𝗠𝗘 𝗧𝗢 𝗩𝗔𝗟𝗜 𝗠𝗢𝗗𝗦 𝗗𝗥𝗜𝗣 𝗞𝗘𝗬 
 
 🎮 𝗬𝗼𝘂𝗿 𝗙𝗥𝗘𝗘 𝗙𝗜𝗥𝗘 𝗔𝗣𝗞𝗠𝗢𝗗 𝗞𝗘𝗬 𝗶𝘀 𝗷𝘂𝘀𝘁 𝗼𝗻𝗲 𝘀𝘁𝗲𝗽 𝗮𝘄𝗮𝘆! 🔥
 ━━━━━━━━━━━━━━━
@@ -269,49 +272,62 @@ def send_force_sub(chat_id, user_id):
 1️⃣ 𝗦𝗮𝗯𝗵𝗶 𝗰𝗵𝗮𝗻𝗻𝗲𝗹𝘀 𝗝𝗼𝗶𝗻 𝗸𝗮𝗿𝗲𝗶𝗻
 2️⃣ 𝗝𝗼𝗶𝗻 𝗸𝗲 𝗯𝗮𝗮𝗱 “✅ 𝗗𝗼𝗻𝗲 !!” 𝗯𝘂𝘁𝘁𝗼𝗻 𝗽𝗮𝗿 𝗰𝗹𝗶𝗰𝗸 𝗸𝗮𝗿𝗲𝗶𝗻
 ━━━━━━━━━━━━━━━"""
-    try: bot.send_video(chat_id, video_url, caption=caption, reply_markup=markup)
-    except: bot.send_message(chat_id, caption, reply_markup=markup)
+        try: bot.send_video(message.chat.id, video_url, caption=caption, reply_markup=markup)
+        except: bot.send_message(message.chat.id, caption, reply_markup=markup)
+    else: send_main_menu(message.chat.id)
 
-@bot.callback_query_handler(func=lambda call: call.data == "verify_channels")
-def verify_callback(call):
+@bot.callback_query_handler(func=lambda call: call.data == "verify")
+def verify(call):
     uid = call.from_user.id
-    if get_unjoined_channels(uid): return bot.answer_callback_query(call.id, "❌ Aapne sabhi channels join nahi kiye!", show_alert=True)
-    bot.delete_message(call.message.chat.id, call.message.message_id)
-    send_main_menu(call.message.chat.id)
-    bot.answer_callback_query(call.id, "✅ Verified!", show_alert=False)
+    unjoined = get_unjoined(uid)
+    
+    if not unjoined:
+        bot.delete_message(call.message.chat.id, call.message.message_id)
+        send_main_menu(call.message.chat.id)
+        bot.answer_callback_query(call.id, "✅ Verified Successfully!", show_alert=False)
+    else:
+        markup = InlineKeyboardMarkup()
+        for ch in unjoined:
+            markup.add(InlineKeyboardButton("Join Channel", url=ch['link']))
+        markup.add(InlineKeyboardButton("🔄 Try Again", callback_data="verify"))
+        
+        try: bot.edit_message_reply_markup(call.message.chat.id, call.message.message_id, reply_markup=markup)
+        except: pass 
+        
+        bot.answer_callback_query(call.id, "❌ Pehle saare bache hue channels join karo!", show_alert=True)
 
-# ================= MAIN MENU & ADVANCED FEATURES =================
+# ================= 📱 MAIN MENU & ADVANCED FEATURES =================
 def send_main_menu(chat_id):
     markup = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
     markup.add(KeyboardButton("🛒 VIP Key Shop"), KeyboardButton("🎁 Daily Streak Bonus"))
     markup.add(KeyboardButton("📝 Earn Tasks"), KeyboardButton("🎲 Mini Games"))
     markup.add(KeyboardButton("🔗 Refer & Earn"), KeyboardButton("👤 My Account"))
     markup.add(KeyboardButton("🏆 Leaderboard"), KeyboardButton("🎟️ Redeem Promo"))
-    bot.send_message(chat_id, "✅ Main Menu:", reply_markup=markup)
+    bot.send_message(chat_id, "✅ <b>Welcome to Main Menu:</b>", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
-def text_commands(message):
+def handle_text(message):
     uid = message.from_user.id
     if flood_check(uid) or is_user_banned(uid): return
-    if get_unjoined_channels(uid): return send_force_sub(message.chat.id, uid)
+    if get_unjoined(uid): return start(message)
     
     user = users_col.find_one({"user_id": uid})
     if not user: return
     coins = user.get('coins', 0)
-    text = message.text
+    t = message.text
 
-    if text == "👤 My Account":
+    if t == "👤 My Account":
         bot.send_message(uid, f"👤 <b>Account Stats</b>\n\n🆔 ID: <code>{uid}</code>\n💰 Coins: <b>{coins}</b>\n🔥 Streak: <b>{user.get('streak', 0)} Days</b>")
         
-    elif text == "🔗 Refer & Earn":
+    elif t == "🔗 Refer & Earn":
         bot.send_message(uid, f"📢 <b>REFER & EARN</b>\nInvite friends & get <b>2 Coins</b> per join!\n\n🔗 Your Link:\nhttps://t.me/{bot.get_me().username}?start={uid}")
 
-    elif text == "🎁 Daily Streak Bonus":
+    elif t == "🎁 Daily Streak Bonus":
         last_bonus = user.get('last_bonus', 0)
         streak = user.get('streak', 0)
         now = time.time()
         
-        if now - last_bonus < 86400: # 24 hours
+        if now - last_bonus < 86400:
             left = int((86400 - (now - last_bonus)) / 3600)
             bot.send_message(uid, f"⏳ <b>Wait!</b>\nAapko agla bonus <b>{left} ghante</b> baad milega.")
         else:
@@ -322,33 +338,33 @@ def text_commands(message):
             users_col.update_one({"user_id": uid}, {"$inc": {"coins": reward}, "$set": {"last_bonus": now, "streak": streak}})
             bot.send_message(uid, f"🔥 <b>Day {streak} Streak Bonus!</b>\nAapko <b>{reward} Coins</b> mil gaye hain.\n\n<i>Kal aana mat bhoolna, streak tut jayegi!</i>")
 
-    elif text == "📝 Earn Tasks":
+    elif t == "📝 Earn Tasks":
         all_tasks = list(tasks_col.find())
-        pending_tasks = [t for t in all_tasks if not task_users_col.find_one({"user_id": uid, "task_id": t['task_id']})]
+        pending_tasks = [task for task in all_tasks if not task_users_col.find_one({"user_id": uid, "task_id": task['task_id']})]
         if not pending_tasks: return bot.send_message(uid, "🎉 Aapne saare tasks complete kar liye hain! Naye tasks ka wait karein.")
         
         markup = InlineKeyboardMarkup()
-        for t in pending_tasks:
-            markup.add(InlineKeyboardButton(f"Task: {t['task_id']} (+{t['reward']} Coins)", callback_data=f"task_{t['task_id']}"))
+        for task in pending_tasks:
+            markup.add(InlineKeyboardButton(f"Task: {task['task_id']} (+{task['reward']} Coins)", callback_data=f"task_{task['task_id']}"))
         bot.send_message(uid, "📝 <b>Available Tasks:</b>\nTask complete karein aur secret code lakar coins jeetein!", reply_markup=markup)
 
-    elif text == "🎲 Mini Games":
+    elif t == "🎲 Mini Games":
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton("🪙 Play 5 Coins", callback_data="game_5"), InlineKeyboardButton("🪙 Play 10 Coins", callback_data="game_10"))
         markup.add(InlineKeyboardButton("🪙 Play 20 Coins", callback_data="game_20"))
         bot.send_message(uid, f"🎲 <b>Coin Toss Game (Double or Nothing)</b>\nAapke Coins: <b>{coins}</b>\nKitne coins lagana chahte ho?", reply_markup=markup)
 
-    elif text == "🏆 Leaderboard":
+    elif t == "🏆 Leaderboard":
         top = list(refs_col.aggregate([{"$group": {"_id": "$referrer_id", "count": {"$sum": 1}}}, {"$sort": {"count": -1}}, {"$limit": 5}]))
         msg = "🏆 <b>TOP REFERRERS</b> 🏆\n\n"
-        for i, t in enumerate(top): msg += f"{i+1}. User <code>{t['_id']}</code> - {t['count']} Invites\n"
+        for i, ref_data in enumerate(top): msg += f"{i+1}. User <code>{ref_data['_id']}</code> - {ref_data['count']} Invites\n"
         bot.send_message(uid, msg)
 
-    elif text == "🎟️ Redeem Promo":
+    elif t == "🎟️ Redeem Promo":
         msg = bot.send_message(uid, "🎫 Apna Promo Code enter karein:")
         bot.register_next_step_handler(msg, process_promo)
 
-    elif text == "🛒 VIP Key Shop":
+    elif t == "🛒 VIP Key Shop":
         setting = settings_col.find_one({"name": "base_price"})
         bp = int(setting['value']) if setting else 15
         markup = InlineKeyboardMarkup().add(
@@ -357,7 +373,7 @@ def text_commands(message):
         )
         bot.send_message(uid, f"🛒 <b>VIP KEY SHOP</b>\nAapke Coins: <b>{coins}</b>", reply_markup=markup)
 
-# ================= TASKS & GAMES SYSTEM =================
+# ================= 🎲 TASKS & GAMES SYSTEM =================
 @bot.callback_query_handler(func=lambda call: call.data.startswith("task_"))
 def handle_task(call):
     task_id = call.data.split("_")[1]
@@ -406,7 +422,7 @@ def handle_game_play(call):
     else:
         bot.edit_message_text(f"🎲 Coin Flipping...\n\nResult: <b>{result}</b>\n😢 <b>YOU LOSE!</b> Better luck next time.", chat_id=call.message.chat.id, message_id=call.message.message_id)
 
-# ================= PROMO & SHOP SYSTEM =================
+# ================= 🛒 PROMO & SHOP SYSTEM =================
 def process_promo(message):
     uid, code = message.from_user.id, message.text.strip().upper()
     promo = promo_col.find_one({"code": code})
@@ -424,7 +440,7 @@ def process_promo(message):
 def handle_shop_buy(call):
     uid, parts = call.from_user.id, call.data.split("_")
     days, price = int(parts[1]), int(parts[2])
-    if get_unjoined_channels(uid): return bot.answer_callback_query(call.id, "❌ Pehle channels join karo!", show_alert=True)
+    if get_unjoined(uid): return bot.answer_callback_query(call.id, "❌ Pehle channels join karo!", show_alert=True)
     
     user = users_col.find_one({"user_id": uid})
     if user.get('coins', 0) >= price:
@@ -462,7 +478,27 @@ def handle_approval(call):
         try: bot.send_message(uid, "❌ <b>Request Rejected!</b> Coins refunded.")
         except: pass
 
+# ================= 🚀 FAST WEBHOOK SERVER =================
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "Bot is Running Ultra Fast with Webhooks! 🚀", 200
+
+@app.route('/' + TOKEN, methods=['POST'])
+def getMessage():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return "!", 200
+    return "Forbidden", 403
+
 if __name__ == "__main__":
-    threading.Thread(target=run_web).start()
-    print("V3.1 Ultimate Features Bot with Bulk Add & Custom Captions is running...")
-    bot.infinity_polling(allowed_updates=telebot.util.update_types)
+    bot.remove_webhook()
+    time.sleep(1)
+    bot.set_webhook(url=WEBHOOK_URL + '/' + TOKEN)
+    
+    port = int(os.environ.get("PORT", 10000))
+    print(f"Webhook Server is starting on port {port}...")
+    app.run(host="0.0.0.0", port=port, threaded=True)
