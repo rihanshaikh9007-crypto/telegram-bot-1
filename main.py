@@ -9,14 +9,13 @@ from flask import Flask
 import threading
 
 # Yahan apna bot token dalein
-TOKEN = '8609194789:AAFVX59ciRYVAsOKSegU9BNa5NuHSqJD3mw'
+TOKEN = '8609194789:AAFMKhn_mJUrb9206Ond_hjIFzKOILrlQ6U'
 bot = telebot.TeleBot(TOKEN, parse_mode='HTML')
 
 ADMIN_ID = 1484173564
 APPROVAL_CHANNEL = "@ValiModes_key"
 
 # ================= DATABASE SETUP (MONGODB - NO RESET) =================
-# ✅ Password update kar diya gaya hai!
 MONGO_URL = "mongodb+srv://rihanshaikh9007_db_user:Rihanshaikh123@cluster0.zinixku.mongodb.net/?appName=Cluster0"
 client = MongoClient(MONGO_URL)
 db = client['webseries_bot']
@@ -56,7 +55,7 @@ def is_user_banned(user_id):
 # ================= FLASK WEB SERVER =================
 app = Flask(__name__)
 @app.route('/')
-def home(): return "V3 Ultimate Bot is Running with Advanced Features!"
+def home(): return "V3.1 Ultimate Bot is Running with Bulk Add & New Captions!"
 def run_web(): app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
 
 # ================= 👨‍💻 VIP ADMIN COMMANDS =================
@@ -120,48 +119,81 @@ def admin_super_commands(message):
         markup.add(InlineKeyboardButton("➕ Add Channel", callback_data="add_channel"), InlineKeyboardButton("➖ Remove Channel", callback_data="remove_channel"))
         markup.add(InlineKeyboardButton("📋 View Added Channels", callback_data="view_channels"), InlineKeyboardButton("📊 Stats & Users", callback_data="adm_stats"))
         markup.add(InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"), InlineKeyboardButton("🚫 Ban User", callback_data="adm_ban"))
-        bot.send_message(message.chat.id, "👨‍💻 <b>Admin Panel V3 (Features Edition)</b>", reply_markup=markup)
+        bot.send_message(message.chat.id, "👨‍💻 <b>Admin Panel (Bulk Upload Edition)</b>", reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data in ["add_channel", "remove_channel", "view_channels"] or call.data.startswith("adm_") or call.data.startswith("style_"))
 def admin_callbacks(call):
     if call.message.chat.id != ADMIN_ID: return
+    
     if call.data.startswith("style_"):
         style = call.data.split("_")[1]
-        data = temp_channel_data.get(call.message.chat.id)
-        if data:
-            channels_col.insert_one({"channel_id": data['ch_id'], "link": data['link'], "style": style})
-            bot.edit_message_text(f"✅ Channel <code>{data['ch_id']}</code> added!", chat_id=call.message.chat.id, message_id=call.message.message_id)
+        data_list = temp_channel_data.get(call.message.chat.id)
+        
+        if data_list:
+            count = 0
+            for data in data_list:
+                if not channels_col.find_one({"channel_id": data['ch_id']}):
+                    channels_col.insert_one({"channel_id": data['ch_id'], "link": data['link'], "style": style})
+                    count += 1
+            bot.edit_message_text(f"✅ <b>{count} Channels successfully added!</b>\n🎨 Button Color: {style.upper()}", chat_id=call.message.chat.id, message_id=call.message.message_id)
             del temp_channel_data[call.message.chat.id]
         return
+        
     if call.data == "add_channel":
-        msg = bot.send_message(call.message.chat.id, "🤖 Channel ID bhejo:")
+        msg = bot.send_message(call.message.chat.id, "🤖 <b>Bot ko sabhi channels me Admin banao!</b>\n\nPhir saare Channel IDs ek sath bhejo (Space dekar):\n\n<i>Example: -10012345 @MeraChannel -10098765</i>")
         bot.register_next_step_handler(msg, process_add_channel)
+        
     elif call.data == "view_channels":
         channels = list(channels_col.find())
         text = "📋 <b>Added Channels:</b>\n\n" if channels else "❌ No channels."
         for ch in channels: text += f"ID: <code>{ch.get('channel_id')}</code>\nLink: {ch.get('link')}\n\n"
         bot.send_message(call.message.chat.id, text, disable_web_page_preview=True)
+        
     elif call.data == "remove_channel":
         msg = bot.send_message(call.message.chat.id, "🗑️ Channel ID bhejo:")
         bot.register_next_step_handler(msg, lambda m: [channels_col.delete_one({"channel_id": m.text.strip()}), bot.send_message(m.chat.id, "✅ Removed!")])
+        
     elif call.data == "adm_stats":
         tot = users_col.count_documents({})
         bot.send_message(call.message.chat.id, f"📊 <b>BOT STATS</b>\n👥 Total Users: {tot}")
+        
     elif call.data == "adm_broadcast":
         msg = bot.send_message(call.message.chat.id, "📢 Broadcast message bhejo:")
         bot.register_next_step_handler(msg, process_broadcast)
+        
     elif call.data == "adm_ban":
         msg = bot.send_message(call.message.chat.id, "🚫 User ID to BAN:")
         bot.register_next_step_handler(msg, lambda m: toggle_ban(m, 1))
 
 def process_add_channel(message):
-    ch_id = message.text.strip()
-    try:
-        invite_link = bot.create_chat_invite_link(ch_id, creates_join_request=True).invite_link
-        temp_channel_data[message.chat.id] = {'ch_id': ch_id, 'link': invite_link}
-        markup = InlineKeyboardMarkup().add(InlineKeyboardButton("🔵 Blue", callback_data="style_primary"), InlineKeyboardButton("🟢 Green", callback_data="style_success"))
-        bot.send_message(message.chat.id, "🎨 <b>Color choose karein:</b>", reply_markup=markup)
-    except Exception as e: bot.send_message(message.chat.id, f"❌ Error: {e}")
+    ch_ids = message.text.replace(',', ' ').split() 
+    success_data = []
+    errors = []
+    
+    bot.send_message(message.chat.id, f"⏳ Processing {len(ch_ids)} channels...")
+    
+    for ch_id in ch_ids:
+        try:
+            invite_link = bot.create_chat_invite_link(ch_id, creates_join_request=True).invite_link
+            success_data.append({'ch_id': ch_id, 'link': invite_link})
+        except Exception as e:
+            errors.append(f"{ch_id}: Bot admin nahi hai ya ID galat hai.")
+
+    if not success_data:
+        err_msg = "\n".join(errors)
+        return bot.send_message(message.chat.id, f"❌ Koi bhi channel fetch nahi ho paya.\n\nErrors:\n{err_msg}")
+        
+    temp_channel_data[message.chat.id] = success_data
+    
+    msg_text = f"✅ <b>{len(success_data)} Channels ready hain!</b>\n"
+    if errors: msg_text += f"⚠️ {len(errors)} channels fail hue.\n"
+    msg_text += "\n🎨 <b>Ab in sabke liye Color choose karein:</b>"
+
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🔵 Blue", callback_data="style_primary"), InlineKeyboardButton("🟢 Green", callback_data="style_success"))
+    markup.add(InlineKeyboardButton("🔴 Red", callback_data="style_danger"), InlineKeyboardButton("⚪ Grey", callback_data="style_secondary"))
+    
+    bot.send_message(message.chat.id, msg_text, reply_markup=markup)
 
 def process_broadcast(message):
     bot.send_message(message.chat.id, "⏳ Broadcasting...")
@@ -207,6 +239,7 @@ def start_cmd(message):
                 except: pass
     send_force_sub(message.chat.id, uid)
 
+# 🌟 NEW CAPTION UPDATED HERE
 def send_force_sub(chat_id, user_id):
     unjoined = get_unjoined_channels(user_id)
     if not unjoined: return send_main_menu(chat_id)
@@ -214,7 +247,30 @@ def send_force_sub(chat_id, user_id):
     markup = InlineKeyboardMarkup()
     for ch in unjoined: markup.add(InlineKeyboardButton("Join Channel", url=ch['link'], style=ch.get('style', 'primary')))
     markup.add(InlineKeyboardButton("✅ Done !!", callback_data="verify_channels", style="success"))
-    bot.send_message(chat_id, "💎 𝗪𝗘𝗟𝗖𝗢𝗠𝗘 𝗧𝗢 𝗩𝗔𝗟𝗜 𝗠𝗢𝗗𝗦\n📢 𝗡𝗶𝗰𝗵𝗲 𝗱𝗶𝘆𝗲 𝗴𝗮𝘆𝗲 𝘀𝗮𝗿𝗲 𝗰𝗵𝗮𝗻𝗻𝗲𝗹𝘀 𝗝𝗢𝗜𝗡 𝗸𝗮𝗿𝗻𝗮 𝗭𝗔𝗥𝗨𝗥𝗜 𝗵𝗮𝗶", reply_markup=markup)
+    
+    video_url = "https://files.catbox.moe/4hbu2q.mp4" 
+    caption = """💎 𝗪𝗘𝗟𝗖𝗢𝗠𝗘 𝗧𝗢 𝗩𝗔𝗟𝗜 𝗠𝗢𝗗𝗦 𝗗𝗥𝗜𝗣 𝗞𝗘𝗬 
+
+🎮 𝗬𝗼𝘂𝗿 𝗙𝗥𝗘𝗘 𝗙𝗜𝗥𝗘 𝗔𝗣𝗞𝗠𝗢𝗗 𝗞𝗘𝗬 𝗶𝘀 𝗷𝘂𝘀𝘁 𝗼𝗻𝗲 𝘀𝘁𝗲𝗽 𝗮𝘄𝗮𝘆! 🔥
+━━━━━━━━━━━━━━━
+
+🛠️ 𝗠𝗢𝗗 𝗙𝗘𝗔𝗧𝗨𝗥𝗘𝗦:
+✅ 𝗦𝗶𝗹𝗲𝗻𝘁 𝗞𝗶𝗹𝗹 / 𝗦𝗶𝗹𝗲𝗻𝘁 𝗔𝗶𝗺
+✅ 𝗠𝗮𝗴𝗻𝗲𝘁𝗶𝗰 𝗔𝗶𝗺
+✅ 𝗔𝗻𝘁𝗶-𝗧𝗮𝘁𝘂
+✅ 𝗚𝗵𝗼𝘀𝘁 𝗛𝗮𝗰𝗸 / 𝗦𝗽𝗲𝗲𝗱 𝗛𝗮𝗰𝗸
+✅ 𝗘𝗦𝗣 (𝗡𝗮𝗺𝗲, 𝗟𝗶𝗻𝗲, 𝗕𝗼𝘅)
+
+━━━━━━━━━━━━━━━
+🚨 𝗔𝗖𝗖𝗘𝗦𝗦 𝗚𝗘𝗧 𝗞𝗔𝗥𝗡𝗘 𝗞𝗘 𝗟𝗜𝗬𝗘
+
+📢 𝗡𝗶𝗰𝗵𝗲 𝗱𝗶𝘆𝗲 𝗴𝗮𝘆𝗲 𝘀𝗮𝗿𝗲 𝗰𝗵𝗮𝗻𝗻𝗲𝗹𝘀 𝗝𝗢𝗜𝗡 𝗸𝗮𝗿𝗻𝗮 𝗭𝗔𝗥𝗨𝗥𝗜 𝗵𝗮𝗶
+━━━━━━━━━━━━━━━
+1️⃣ 𝗦𝗮𝗯𝗵𝗶 𝗰𝗵𝗮𝗻𝗻𝗲𝗹𝘀 𝗝𝗼𝗶𝗻 𝗸𝗮𝗿𝗲𝗶𝗻
+2️⃣ 𝗝𝗼𝗶𝗻 𝗸𝗲 𝗯𝗮𝗮𝗱 “✅ 𝗗𝗼𝗻𝗲 !!” 𝗯𝘂𝘁𝘁𝗼𝗻 𝗽𝗮𝗿 𝗰𝗹𝗶𝗰𝗸 𝗸𝗮𝗿𝗲𝗶𝗻
+━━━━━━━━━━━━━━━"""
+    try: bot.send_video(chat_id, video_url, caption=caption, reply_markup=markup)
+    except: bot.send_message(chat_id, caption, reply_markup=markup)
 
 @bot.callback_query_handler(func=lambda call: call.data == "verify_channels")
 def verify_callback(call):
@@ -408,5 +464,5 @@ def handle_approval(call):
 
 if __name__ == "__main__":
     threading.Thread(target=run_web).start()
-    print("V3 Ultimate Features Bot is running...")
+    print("V3.1 Ultimate Features Bot with Bulk Add & Custom Captions is running...")
     bot.infinity_polling(allowed_updates=telebot.util.update_types)
